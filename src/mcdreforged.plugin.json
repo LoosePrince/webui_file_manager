@@ -1,6 +1,6 @@
 {
   "id": "webui_file_manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "WebUI File Manager",
   "description": {
     "en_us": "A WebUI file manager plugin, browsing the MCDR root and (super admin) reading/writing local drives.",

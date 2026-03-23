@@ -581,10 +581,6 @@ def on_load(server: PluginServerInterface, old) -> None:
     if not webui or not hasattr(webui, "register_plugin_page"):
         server.logger.warning("[%s] guguwebui 未找到 register_plugin_page，跳过注册", PLUGIN_ID)
         return
-    if not _HTML_FILE.is_file():
-        server.logger.error("[%s] 找不到 HTML 文件: %s", PLUGIN_ID, _HTML_FILE)
-        return
-
     try:
         data_folder = Path(server.get_data_folder()).resolve()
         # 与工程内其它逻辑保持一致：mcdr_root = dirname(dirname(data_folder))
@@ -593,24 +589,62 @@ def on_load(server: PluginServerInterface, old) -> None:
         server.logger.error("[%s] 计算 MCDR 根目录失败: %s", PLUGIN_ID, e)
         _MC_ROOT = None
 
-    # 将页面 HTML 放到 WebUI 配置目录，便于用户替换/维护
-    try:
-        _CONFIG_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
-        # 每次启动都覆盖用户 config 中的页面文件，确保与插件内置实现一致
+    def _extract_bundled_demo_html() -> bool:
+        """
+        从 mcdr 内置资源里提取 static/demo.html 到 config/webui_file_manager/demo.html。
+
+        参考 guguwebui 的 file_util.py：使用 server.open_bundled_file() 读取打包资源，
+        避免依赖 static/ 是否已经被解压到磁盘。
+        """
+        try:
+            _CONFIG_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with server.open_bundled_file("static/demo.html") as file_handler:
+                data = file_handler.read()
+            with open(_CONFIG_HTML_PATH, "wb") as f:
+                f.write(data)
+            return True
+        except FileNotFoundError:
+            return False
+        except Exception as e:
+            server.logger.warning("[%s] 从内置资源提取 demo.html 失败: %s", PLUGIN_ID, e)
+            return False
+
+    # HTML 加载策略：
+    # 1) 始终尝试从 mcdr 内置 static/demo.html 覆盖 config/webui_file_manager/demo.html
+    # 2) 内置资源不存在时，才回退到文件系统的 static/demo.html 或已存在的 config
+    config_exists = _CONFIG_HTML_PATH.is_file()
+    extracted = _extract_bundled_demo_html()
+
+    if not extracted:
         if _HTML_FILE.is_file():
-            shutil.copyfile(_HTML_FILE, _CONFIG_HTML_PATH)
-    except Exception as e:
-        server.logger.warning(
-            "[%s] 将 HTML 拷贝到 config/webui_file_manager 失败，将回退使用 static/demo.html: %s",
-            PLUGIN_ID,
-            e,
-        )
+            try:
+                _CONFIG_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(_HTML_FILE, _CONFIG_HTML_PATH)
+                server.logger.info(
+                    "[%s] 已覆盖 config/webui_file_manager/demo.html（来源：文件系统 static/demo.html）",
+                    PLUGIN_ID,
+                )
+            except Exception as e:
+                server.logger.warning("[%s] 覆盖 config 失败: %s", PLUGIN_ID, e)
+        elif config_exists:
+            server.logger.warning(
+                "[%s] static/demo.html（内置资源/文件系统）不存在，回退使用 config 内的 demo.html: %s",
+                PLUGIN_ID,
+                _CONFIG_HTML_PATH,
+            )
+        else:
+            server.logger.error(
+                "[%s] 找不到 HTML 文件：内置 static/demo.html 或文件系统 static=%s 或 config=%s",
+                PLUGIN_ID,
+                _HTML_FILE,
+                _CONFIG_HTML_PATH,
+            )
+            return
 
     webui.register_plugin_page(
         PLUGIN_ID,
         str(_CONFIG_HTML_PATH.resolve())
-        if _CONFIG_HTML_PATH.exists()
-        else str(_HTML_FILE),
+        if _CONFIG_HTML_PATH.exists() else str(_HTML_FILE),
         name="文件管理器",
         api_handler=_api_handler,
         upload_max_bytes=_UPLOAD_LIMIT_BYTES,
