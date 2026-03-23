@@ -11,6 +11,6 @@
   ],
   "link": "https://github.com/PFingan-Code/webui_file_manager",
   "dependencies": {
-    "guguwebui": ">=1.7.0"
+    "guguwebui": ">=1.8.3"
   }
 }
