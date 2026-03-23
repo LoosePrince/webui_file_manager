@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebExplorer - 本地文件管理系统</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/php/php.min.js"></script>
+  <style>
+    :root {
+      --sidebar-width: 240px;
+      --topbar-height: 50px;
+      --actionbar-height: 45px;
+      --primary-blue: #3b82f6;
+      --border-color: #e5e7eb;
+      --hover-bg: #f3f4f6;
+      --text-dark: #374151;
+      --text-light: #6b7280;
+    }
+
+    html[data-theme="dark"] {
+      --border-color: #30363d;
+      --hover-bg: #21262d;
+      --text-dark: #e6edf3;
+      --text-light: #8b949e;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--text-dark);
+      background: #fff;
+      min-height: 800px;
+      overflow: hidden;
+    }
+
+    /* --- 布局容器 --- */
+    .wrapper {
+      display: flex;
+      height: 100vh;
+      min-height: 100vh;
+      flex-direction: column;
+    }
+
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* --- 顶部工具栏 --- */
+    .top-navbar {
+      height: var(--topbar-height);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      padding: 0 15px;
+      background: #fff;
+      gap: 20px;
+    }
+
+    html[data-theme="dark"] body {
+      background: #0f1419;
+      color: var(--text-dark);
+    }
+
+    html[data-theme="dark"] .top-navbar {
+      background: #0f1419;
+    }
+
+    .action-bar {
+      height: var(--actionbar-height);
+      background: #f9fafb;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      padding: 0 15px;
+      gap: 10px;
+    }
+
+    html[data-theme="dark"] .action-bar {
+      background: #161b22;
+    }
+
+    .btn {
+      padding: 5px 12px;
+      border: 1px solid var(--border-color);
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--hover-bg);
+      border-color: #d1d5db;
+    }
+
+    .btn i {
+      color: var(--text-light);
+    }
+
+    .btn-primary {
+      background: var(--primary-blue);
+      color: #fff;
+      border: none;
+    }
+
+    .btn-primary i {
+      color: #fff;
+    }
+
+    /* --- 侧边栏 (文件夹树) --- */
+    .sidebar {
+      width: var(--sidebar-width);
+      border-right: 1px solid var(--border-color);
+      background: #fdfdfd;
+      overflow-y: auto;
+      padding: 10px 0;
+    }
+
+    html[data-theme="dark"] .sidebar {
+      background: #0c1016;
+    }
+
+    .tree-item {
+      padding: 6px 15px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .tree-item:hover {
+      background: var(--hover-bg);
+    }
+
+    .tree-item.active {
+      background: #e0e7ff;
+      color: var(--primary-blue);
+      font-weight: 500;
+    }
+
+    .tree-item i.fa-caret-right {
+      width: 10px;
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+
+    .tree-item.open i.fa-caret-right {
+      transform: rotate(90deg);
+    }
+
+    .folder-icon {
+      color: #facc15;
+    }
+
+    /* --- 内容区 --- */
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+    }
+
+    /* 面包屑导航 */
+    .breadcrumb {
+      padding: 8px 15px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: #fff;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    html[data-theme="dark"] .breadcrumb {
+      background: #0f1419;
+    }
+
+    .breadcrumb span {
+      color: var(--text-light);
+      cursor: pointer;
+    }
+
+    .breadcrumb span:hover {
+      color: var(--primary-blue);
+      text-decoration: underline;
+    }
+
+    .breadcrumb b {
+      color: var(--text-dark);
+      font-weight: 500;
+    }
+
+    /* 文件列表表格 */
+    .file-list-container {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      table-layout: fixed;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f9fafb;
+      padding: 10px 15px;
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      color: var(--text-light);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    html[data-theme="dark"] th {
+      background: #161b22;
+    }
+
+    td {
+      padding: 8px 15px;
+      border-bottom: 1px solid #f3f4f6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    html[data-theme="dark"] td {
+      border-bottom-color: #30363d;
+      color: var(--text-dark);
+    }
+
+    tr:hover {
+      background: #f8fafc;
+    }
+
+    html[data-theme="dark"] tr:hover {
+      background: #161b22;
+    }
+
+    .file-name-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .file-name-cell i {
+      font-size: 16px;
+    }
+
+    /* 状态颜色 */
+    .ext-zip {
+      color: #ec4899;
+    }
+
+    .ext-js {
+      color: #eab308;
+    }
+
+    .ext-html {
+      color: #f97316;
+    }
+
+    .ext-css {
+      color: #3b82f6;
+    }
+
+    .ext-php {
+      color: #8b5cf6;
+    }
+
+    /* 状态栏 */
+    .status-bar {
+      height: 28px;
+      background: #fff;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      padding: 0 15px;
+      font-size: 12px;
+      color: var(--text-light);
+      justify-content: space-between;
+    }
+
+    html[data-theme="dark"] .status-bar {
+      background: #0f1419;
+    }
+
+    /* 搜索框 */
+    .search-box {
+      position: relative;
+      margin-left: auto;
+    }
+
+    .search-box input {
+      padding: 5px 10px 5px 30px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      width: 200px;
+      outline: none;
+    }
+
+    .search-box i {
+      position: absolute;
+      left: 10px;
+      top: 8px;
+      color: var(--text-light);
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+
+    .field input {
+      padding: 8px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      outline: none;
+      font-size: 13px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    tr.row-selected {
+      background: #e0e7ff !important;
+    }
+
+    tr.row-selected:hover {
+      background: #dbeafe !important;
+    }
+
+    .scope-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .scope-select select {
+      padding: 5px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text-dark);
+      outline: none;
+      font-size: 13px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 16px;
+    }
+
+    .modal {
+      width: min(980px, 96vw);
+      height: min(78vh, 760px);
+      background: #fff;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    html[data-theme="dark"] .modal {
+      background: #0f1419;
+    }
+
+    .modal-header {
+      padding: 10px 15px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .modal-header .modal-title {
+      font-weight: 600;
+      color: var(--text-dark);
+      font-size: 14px;
+    }
+
+    .modal-meta {
+      padding: 0 15px;
+      margin-top: 8px;
+      color: var(--text-light);
+      font-size: 12px;
+    }
+
+    .modal-body {
+      padding: 10px 15px 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    textarea#editor {
+      width: 100%;
+      flex: 1;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      outline: none;
+      resize: none;
+      overflow: auto;
+    }
+
+    .CodeMirror {
+      height: 100%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+
+    html[data-theme="dark"] textarea#editor {
+      background: #0b1220;
+      color: var(--text-dark);
+    }
+
+    html[data-theme="dark"] .CodeMirror {
+      background: #0b1220;
+    }
+
+    .modal-error {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 10px;
+      border-radius: 6px;
+      max-height: 120px;
+      overflow: auto;
+      font-size: 12px;
+    }
+
+    .modal-actions {
+      padding: 10px 15px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    /* Extra ext icons */
+    .ext-txt {
+      color: #64748b;
+    }
+
+    .ext-md {
+      color: #475569;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="wrapper">
+    <!-- 操作按钮栏 -->
+    <div class="action-bar">
+      <button class="btn btn-primary" id="btn-upload"><i class="fas fa-upload"></i> 上传</button>
+      <button class="btn" id="btn-mkdir"><i class="fas fa-folder-plus"></i> 新建目录</button>
+      <button class="btn" id="btn-touch"><i class="fas fa-file-plus"></i> 新建文件</button>
+      <div style="width:1px; height:20px; background:#ddd; margin:0 5px;"></div>
+      <button class="btn" id="btn-rename"><i class="fas fa-i-cursor"></i> 重命名</button>
+      <button class="btn" style="color:#ef4444;" id="btn-delete"><i class="fas fa-trash-alt"></i> 删除</button>
+      <button class="btn" id="btn-download"><i class="fas fa-download"></i> 下载</button>
+
+      <button class="btn" id="btn-copy"><i class="fas fa-copy"></i> 复制</button>
+      <button class="btn" style="color:#f59e0b;" id="btn-move"><i class="fas fa-cut"></i> 剪切</button>
+
+      <!-- 搜索框：替代原顶栏/下拉范围选择 -->
+      <div class="search-box">
+        <i class="fas fa-search"></i>
+        <input id="search-input" type="text" placeholder="搜索当前目录...">
+      </div>
+    </div>
+
+    <div class="main-container">
+      <!-- 左侧目录树 -->
+      <aside class="sidebar">
+        <div id="tree-container"></div>
+      </aside>
+
+      <!-- 右侧文件列表 -->
+      <section class="content">
+        <div class="breadcrumb" id="breadcrumb"></div>
+
+        <div class="file-list-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40%">文件名</th>
+                <th style="width: 15%">大小</th>
+                <th style="width: 20%">修改时间</th>
+                <th style="width: 25%">类型</th>
+              </tr>
+            </thead>
+            <tbody id="file-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- 状态栏 -->
+        <div class="status-bar">
+          <div>
+            共 <span id="items-count">0</span> 个项目
+            (包含 <span id="dirs-count">0</span> 个目录)
+          </div>
+          <div>
+            已选中 <span id="selected-count">0</span> 个项目
+            | 预览<=<span id="preview-limit">0</span>
+              | 上传<=<span id="upload-limit">0</span>
+                | <span id="status-msg">加载中...</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <input id="upload-input" type="file" class="hidden" />
+
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-title">文件预览</div>
+        <button class="btn" type="button" id="btn-modal-close">关闭</button>
+      </div>
+      <div class="modal-meta" id="modal-meta"></div>
+      <div class="modal-body">
+        <textarea id="editor" spellcheck="false"></textarea>
+        <pre id="modal-error" class="modal-error hidden"></pre>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="btn-modal-download"><i class="fas fa-download"></i> 下载</button>
+        <button class="btn btn-primary" type="button" id="btn-save"><i class="fas fa-save"></i> 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="copy-move-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal" style="width: min(720px, 96vw);">
+      <div class="modal-header">
+        <div class="modal-title" id="copy-move-modal-title">复制</div>
+        <button class="btn" type="button" id="btn-copy-move-close">关闭</button>
+      </div>
+      <div class="modal-meta" id="copy-move-modal-meta"></div>
+      <div class="modal-body">
+        <pre id="copy-move-modal-error" class="modal-error hidden"></pre>
+
+        <div class="field">
+          <label for="target-dir-input" id="target-dir-label">目标目录（相对根）</label>
+          <input id="target-dir-input" type="text" placeholder="例如 folder/sub">
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:10px;">
+          <button class="btn" type="button" id="btn-pick-target-dir"><i class="fas fa-folder-open"></i> 选择目录</button>
+          <button class="btn" type="button" id="btn-use-current-dir"><i class="fas fa-location-arrow"></i>
+            使用当前目录</button>
+        </div>
+
+        <div class="field">
+          <label for="target-name-input" id="target-name-label">名称</label>
+          <input id="target-name-input" type="text" placeholder="例如 config.yml">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="btn-copy-move-cancel">取消</button>
+        <button class="btn btn-primary" type="button" id="btn-copy-move-confirm"><i class="fas fa-copy"></i> 确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dir-picker-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal" style="width: min(820px, 96vw); height: min(78vh, 760px);">
+      <div class="modal-header">
+        <div class="modal-title" id="dir-picker-modal-title">选择目录</div>
+        <button class="btn" type="button" id="btn-dir-picker-close">关闭</button>
+      </div>
+      <div class="modal-meta" id="dir-picker-modal-meta"></div>
+      <div class="modal-body">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
+          <div style="font-size:12px; color: var(--text-light);" id="dir-picker-current-path"></div>
+          <button class="btn" type="button" id="btn-dir-picker-up"><i class="fas fa-arrow-left"></i> 返回</button>
+        </div>
+        <div class="file-list-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 70%">目录</th>
+                <th style="width: 30%">操作</th>
+              </tr>
+            </thead>
+            <tbody id="dir-picker-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="btn-dir-picker-cancel">取消</button>
+        <button class="btn btn-primary" type="button" id="btn-dir-picker-select"><i class="fas fa-check"></i>
+          选择此目录</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const state = {
+        scope: 'mcdr',
+        drive: '',
+        path: '',
+        allowedScopes: ['mcdr'],
+        drives: [],
+        canWrite: false,
+        limits: { preview_bytes: 0, upload_bytes: 0 },
+        itemsAll: [],
+        selectedRelPath: null,
+        selectedIsDir: false,
+        editorPath: null,
+        copyMoveMode: null,
+        editorCm: null,
+        dirPickerPath: ''
+      };
+
+      const I18N = {
+        'zh-CN': {
+          pageTitle: 'WebExplorer - 本地文件管理系统',
+          appTitle: 'WebExplorer',
+          searchPlaceholder: '搜索当前目录...',
+          upload: '上传',
+          mkdir: '新建目录',
+          touch: '新建文件',
+          rename: '重命名',
+          delete: '删除',
+          download: '下载',
+          copy: '复制',
+          move: '剪切',
+          modalClose: '关闭',
+          modalPreview: '文件预览',
+          modalSave: '保存',
+          confirmDelete: '确认删除',
+          readOnlyNeedSuper: '当前为只读（需要超级管理员权限）。',
+          loadingDir: '加载目录中...',
+          driveNotSelected: '当前 scope=drive 但未选择 drive',
+          ready: '就绪',
+          selectedPrefix: '已选中',
+          loadFailedPrefix: '加载失败',
+          dirLabel: '目录',
+          newFilePrefix: '新建文件',
+          saveLoading: '保存中...',
+          saveSuccess: '保存成功',
+          saveFailed: '保存失败',
+          uploadLoading: '上传中...',
+          uploadSuccess: '上传成功',
+          uploadFailedPrefix: '上传失败',
+          mkdirLoading: '创建目录中...',
+          mkdirSuccess: '目录已创建',
+          mkdirNamePrompt: '请输入目录名（仅文件名，不能包含 / \\ :）',
+          mkdirFailedPrefix: '创建目录失败',
+          renameLoading: '重命名中...',
+          renameSuccess: '重命名成功',
+          renameSelectAlert: '请先选择一个项目进行重命名。',
+          renameNewNamePrompt: '请输入新的名称（不能包含 / \\ :）',
+          renameFailedPrefix: '重命名失败',
+          deleteLoading: '删除中...',
+          deleteSuccess: '删除成功',
+          deleteSelectAlert: '请先选择一个项目进行删除。',
+          deleteFailedPrefix: '删除失败',
+          touchNamePrompt: '请输入文件名（例如 config.yml / test.txt）',
+          downloadLoading: '正在下载...',
+          downloadSelectAlert: '请先选择一个文件进行下载。',
+          dirNotDownloadAlert: '目录不支持直接下载，请先进入目录后再选择文件。',
+          copyMoveSelectAlert: '请先选择一个项目进行复制/剪切。',
+          copyMoveTargetDirLabel: '目标目录（相对根）',
+          copyMoveTargetNameLabel: '名称',
+          copyMoveTargetDirPlaceholder: '例如 folder/sub',
+          copyMoveTargetNamePlaceholder: '例如 config.yml',
+          copyMoveUseCurrentDir: '使用当前目录',
+          overwriteConfirm: '目标已存在，是否覆盖？',
+          cancel: '取消',
+          confirm: '确认',
+          pickTargetDir: '选择目录',
+          dirPickerTitle: '选择目录',
+          dirPickerUp: '返回',
+          dirPickerSelect: '选择此目录',
+          dirPickerRoot: '根目录',
+          dirPickerLoading: '加载目录中...',
+          copyLoading: '复制中...',
+          copySuccess: '复制成功',
+          copyFailedPrefix: '复制失败',
+          moveLoading: '移动中...',
+          moveSuccess: '移动成功',
+          moveFailedPrefix: '移动失败',
+          fsInfoLoading: '获取后端能力...',
+          fsInfoFailedPrefix: '获取 fs_info 失败'
+        },
+        'en-US': {
+          pageTitle: 'WebExplorer - Local File Manager',
+          appTitle: 'WebExplorer',
+          searchPlaceholder: 'Search current directory...',
+          upload: 'Upload',
+          mkdir: 'New Folder',
+          touch: 'New File',
+          rename: 'Rename',
+          delete: 'Delete',
+          download: 'Download',
+          copy: 'Copy',
+          move: 'Move',
+          modalClose: 'Close',
+          modalPreview: 'File Preview',
+          modalSave: 'Save',
+          confirmDelete: 'Confirm delete',
+          readOnlyNeedSuper: 'Current is read-only (super admin required).',
+          loadingDir: 'Loading directory...',
+          driveNotSelected: 'Scope=drive selected but no drive chosen',
+          ready: 'Ready',
+          selectedPrefix: 'Selected',
+          loadFailedPrefix: 'Load failed',
+          dirLabel: 'Directory',
+          newFilePrefix: 'New File',
+          saveLoading: 'Saving...',
+          saveSuccess: 'Saved successfully',
+          saveFailed: 'Save failed',
+          uploadLoading: 'Uploading...',
+          uploadSuccess: 'Uploaded successfully',
+          uploadFailedPrefix: 'Upload failed',
+          mkdirLoading: 'Creating folder...',
+          mkdirSuccess: 'Folder created',
+          mkdirNamePrompt: 'Enter directory name (name only; cannot contain / \\ :)',
+          mkdirFailedPrefix: 'Create folder failed',
+          renameLoading: 'Renaming...',
+          renameSuccess: 'Renamed successfully',
+          renameSelectAlert: 'Please select one item to rename first.',
+          renameNewNamePrompt: 'Enter new name (cannot contain / \\ :)',
+          renameFailedPrefix: 'Rename failed',
+          deleteLoading: 'Deleting...',
+          deleteSuccess: 'Deleted successfully',
+          deleteSelectAlert: 'Please select one item to delete first.',
+          deleteFailedPrefix: 'Delete failed',
+          touchNamePrompt: 'Enter file name (e.g. config.yml / test.txt)',
+          downloadLoading: 'Downloading...',
+          downloadSelectAlert: 'Please select a file to download.',
+          dirNotDownloadAlert: 'Direct download is not supported for directories; enter directory first.',
+          copyMoveSelectAlert: 'Please select one item first for copy/move.',
+          copyMoveTargetDirLabel: 'Destination directory (relative to root)',
+          copyMoveTargetNameLabel: 'Name',
+          copyMoveTargetDirPlaceholder: 'e.g. folder/sub',
+          copyMoveTargetNamePlaceholder: 'e.g. config.yml',
+          copyMoveUseCurrentDir: 'Use current directory',
+          overwriteConfirm: 'Target already exists. Overwrite?',
+          cancel: 'Cancel',
+          confirm: 'Confirm',
+          pickTargetDir: 'Choose directory',
+          dirPickerTitle: 'Select directory',
+          dirPickerUp: 'Back',
+          dirPickerSelect: 'Select this directory',
+          dirPickerRoot: 'Root directory',
+          dirPickerLoading: 'Loading directory...',
+          copyLoading: 'Copying...',
+          copySuccess: 'Copied successfully',
+          copyFailedPrefix: 'Copy failed',
+          moveLoading: 'Moving...',
+          moveSuccess: 'Moved successfully',
+          moveFailedPrefix: 'Move failed',
+          fsInfoLoading: 'Fetching backend capabilities...',
+          fsInfoFailedPrefix: 'Failed to fetch fs_info'
+        }
+      };
+
+      function resolveLang() {
+        try {
+          var p = window.parent && window.parent.document;
+          if (p && p.documentElement) {
+            var l = p.documentElement.getAttribute('lang') || '';
+            if (l === 'en-US' || l.indexOf('en') === 0) return 'en-US';
+            if (l === 'zh-CN' || l.indexOf('zh') === 0) return 'zh-CN';
+          }
+        } catch (e) { }
+        try {
+          var ls = localStorage.getItem('language');
+          if (ls === 'en-US' || ls === 'zh-CN') return ls;
+        } catch (e) { }
+        return 'zh-CN';
+      }
+
+      var i18nLang = resolveLang();
+      function t(key) {
+        var pack = I18N[i18nLang] || I18N['zh-CN'];
+        return pack[key] || I18N['zh-CN'][key] || key;
+      }
+
+      function setButtonLabel(btnId, label) {
+        var btn = $(btnId);
+        if (!btn) return;
+        var lastText = null;
+        for (var i = 0; i < btn.childNodes.length; i++) {
+          var node = btn.childNodes[i];
+          if (node.nodeType === Node.TEXT_NODE && node.nodeValue && node.nodeValue.trim() !== '') {
+            lastText = node;
+          }
+        }
+        if (lastText) {
+          lastText.nodeValue = ' ' + label;
+        } else {
+          btn.appendChild(document.createTextNode(' ' + label));
+        }
+      }
+
+      function applyI18n() {
+        i18nLang = resolveLang();
+        document.documentElement.lang = i18nLang;
+        document.title = t('pageTitle');
+
+        var appTitleText = $('app-title-text');
+        if (appTitleText) appTitleText.textContent = t('appTitle');
+
+        var searchInput = $('search-input');
+        if (searchInput) searchInput.placeholder = t('searchPlaceholder');
+
+        setButtonLabel('btn-upload', t('upload'));
+        setButtonLabel('btn-mkdir', t('mkdir'));
+        setButtonLabel('btn-touch', t('touch'));
+        setButtonLabel('btn-rename', t('rename'));
+        setButtonLabel('btn-delete', t('delete'));
+        setButtonLabel('btn-download', t('download'));
+        setButtonLabel('btn-copy', t('copy'));
+        setButtonLabel('btn-move', t('move'));
+
+        var btnModalClose = $('btn-modal-close');
+        if (btnModalClose) btnModalClose.textContent = t('modalClose');
+
+        setButtonLabel('btn-modal-download', t('download'));
+        setButtonLabel('btn-save', t('modalSave'));
+
+        setButtonLabel('btn-pick-target-dir', t('pickTargetDir'));
+        setButtonLabel('btn-use-current-dir', t('copyMoveUseCurrentDir'));
+        setButtonLabel('btn-copy-move-close', t('modalClose'));
+        setButtonLabel('btn-copy-move-cancel', t('cancel'));
+
+        setButtonLabel('btn-dir-picker-close', t('modalClose'));
+        setButtonLabel('btn-dir-picker-cancel', t('cancel'));
+        setButtonLabel('btn-dir-picker-select', t('dirPickerSelect'));
+        setButtonLabel('btn-dir-picker-up', t('dirPickerUp'));
+
+        var dirPickerTitle = $('dir-picker-modal-title');
+        if (dirPickerTitle) dirPickerTitle.textContent = t('dirPickerTitle');
+      }
+
+      function observeParentLang() {
+        try {
+          var root = window.parent && window.parent.document && window.parent.document.documentElement;
+          if (!root) return;
+          var obs = new MutationObserver(function () {
+            applyI18n();
+          });
+          obs.observe(root, { attributes: true, attributeFilter: ['lang'] });
+        } catch (e) { }
+      }
+
+      applyI18n();
+      observeParentLang();
+
+      function $(id) { return document.getElementById(id); }
+
+      function apiRoot() {
+        try {
+          var cfg = window.parent && window.parent.__GUGU_CONFIG__;
+          var root = (cfg && cfg.root_path) ? String(cfg.root_path) : '';
+          return root.replace(/\/$/, '') + '/api';
+        } catch (e) {
+          return '/api';
+        }
+      }
+
+      function pluginBase() {
+        return apiRoot() + '/plugin/webui_file_manager';
+      }
+
+      function setStatus(msg) {
+        $('status-msg').textContent = msg || '';
+      }
+
+      function joinRelPath(baseRel, name) {
+        const b = String(baseRel || '').replace(/^\/+/, '').replace(/\/+$/, '');
+        const n = String(name || '').replace(/^\/+/, '').replace(/\/+$/, '');
+        if (!n) return b;
+        if (!b) return n;
+        return b + '/' + n;
+      }
+
+      function splitRelPath(rel) {
+        const s = String(rel || '').trim();
+        if (!s) return [];
+        return s.split('/').filter(Boolean);
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined) return '--';
+        const b = Number(bytes);
+        if (!isFinite(b) || b < 0) return '--';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let u = 0;
+        let v = b;
+        while (v >= 1024 && u < units.length - 1) {
+          v = v / 1024;
+          u++;
+        }
+        if (u === 0) return `${v} ${units[u]}`;
+        const fixed = v < 10 ? 1 : 0;
+        return `${v.toFixed(fixed)} ${units[u]}`;
+      }
+
+      function formatMtime(mtimeSec) {
+        const n = Number(mtimeSec);
+        if (!isFinite(n) || n <= 0) return '--';
+        const d = new Date(n * 1000);
+        const pad = (x) => String(x).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+
+      function extIconClass(ext) {
+        const e = String(ext || '').toLowerCase();
+        if (e === 'js' || e === 'ts') return 'fab fa-js-square ext-js';
+        if (e === 'html' || e === 'htm') return 'fab fa-html5 ext-html';
+        if (e === 'css') return 'fab fa-css3-alt ext-css';
+        if (e === 'php') return 'fab fa-php ext-php';
+        if (e === 'zip' || e === 'rar' || e === '7z') return 'fas fa-file-archive ext-zip';
+        if (e === 'md') return 'fas fa-file-alt ext-md';
+        if (e === 'txt') return 'fas fa-file-alt ext-txt';
+        return 'fas fa-file';
+      }
+
+      function getSelectedFileRelPath() {
+        return state.selectedRelPath;
+      }
+
+      function currentDriveQueryIfNeeded(sp) {
+        if (state.scope === 'drive') {
+          sp.set('drive', state.drive);
+        }
+      }
+
+      function buildListUrl() {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', state.path || '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/list?' + sp.toString();
+      }
+
+      function buildListUrlForPath(relPath) {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', relPath || '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/list?' + sp.toString();
+      }
+
+      function buildReadUrl(relPath) {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', relPath || '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/read?' + sp.toString();
+      }
+
+      function buildDownloadUrl(relPath) {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', relPath || '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/download?' + sp.toString();
+      }
+
+      function buildSaveUrl(relPath) {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', relPath || '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/save?' + sp.toString();
+      }
+
+      function buildMkdirUrl() {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/mkdir?' + sp.toString();
+      }
+
+      function buildRenameUrl() {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/rename?' + sp.toString();
+      }
+
+      function buildDeleteUrl() {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/delete?' + sp.toString();
+      }
+
+      function buildCopyUrl() {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/copy?' + sp.toString();
+      }
+
+      function buildMoveUrl() {
+        const sp = new URLSearchParams();
+        sp.set('scope', state.scope);
+        sp.set('path', '');
+        currentDriveQueryIfNeeded(sp);
+        return pluginBase() + '/move?' + sp.toString();
+      }
+
+      async function fetchJson(url, options) {
+        const r = await fetch(url, Object.assign({ credentials: 'include' }, options || {}));
+        const text = await r.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (e) { }
+        if (!r.ok) {
+          const msg = data && (data.error || data.message) ? (data.error || data.message) : `HTTP ${r.status}`;
+          throw new Error(msg);
+        }
+        if (data && data.ok === false) {
+          throw new Error(data.error || data.message || '请求失败');
+        }
+        return data;
+      }
+
+      function updateLimitsUi() {
+        $('preview-limit').textContent = state.limits.preview_bytes ? formatBytes(state.limits.preview_bytes) : '0';
+        $('upload-limit').textContent = state.limits.upload_bytes ? formatBytes(state.limits.upload_bytes) : '0';
+      }
+
+      function renderBreadcrumb() {
+        const el = $('breadcrumb');
+        const segs = splitRelPath(state.path);
+        const scopeLabel = state.scope === 'drive' ? `${state.drive}:\\` : 'mcdr';
+
+        el.innerHTML = '';
+        const rootSpan = document.createElement('span');
+        rootSpan.textContent = scopeLabel;
+        rootSpan.onclick = function () {
+          state.path = '';
+          state.selectedRelPath = null;
+          listCurrentDir();
+        };
+        el.appendChild(rootSpan);
+
+        segs.forEach((s, idx) => {
+          const sep = document.createTextNode(' / ');
+          el.appendChild(sep);
+
+          const isLast = idx === segs.length - 1;
+          if (isLast) {
+            const b = document.createElement('b');
+            b.textContent = s;
+            el.appendChild(b);
+          } else {
+            const span = document.createElement('span');
+            span.textContent = s;
+            span.onclick = function () {
+              state.path = segs.slice(0, idx + 1).join('/');
+              state.selectedRelPath = null;
+              listCurrentDir();
+            };
+            el.appendChild(span);
+          }
+        });
+
+        if (!segs.length) {
+          // root only, no extra content
+        }
+      }
+
+      function renderTree() {
+        const el = $('tree-container');
+        const currentScope = state.scope;
+        const currentDrive = state.drive;
+        el.innerHTML = '';
+
+        function addScopeItem(opts) {
+          const item = document.createElement('div');
+          item.className = 'tree-item';
+          if (opts.active) item.classList.add('active');
+          if (opts.open) item.classList.add('open');
+
+          item.innerHTML =
+            '<i class="fas fa-caret-right"></i>' +
+            '<i class="' + (opts.iconClass || 'fas fa-hdd folder-icon') + '"></i>' +
+            '<span>' + opts.label + '</span>';
+
+          item.onclick = function () {
+            state.scope = opts.scope;
+            state.drive = opts.drive || '';
+            state.path = '';
+            state.selectedRelPath = null;
+            listCurrentDir();
+            renderTree();
+          };
+          el.appendChild(item);
+        }
+
+        addScopeItem({ scope: 'mcdr', label: 'mcdr', iconClass: 'fas fa-hdd folder-icon', active: currentScope === 'mcdr', open: true });
+
+        if (state.allowedScopes.includes('drive')) {
+          // drives as siblings (shallow tree for demo)
+          state.drives.forEach((d) => {
+            addScopeItem({
+              scope: 'drive',
+              drive: d,
+              label: d + ':\\',
+              iconClass: 'fas fa-hdd folder-icon',
+              active: currentScope === 'drive' && currentDrive === d,
+              open: false
+            });
+          });
+        }
+      }
+
+      function updateSelectionUi() {
+        $('selected-count').textContent = state.selectedRelPath ? '1' : '0';
+      }
+
+      function renderItems() {
+        const tbody = $('file-tbody');
+        tbody.innerHTML = '';
+
+        const searchInput = document.querySelector('.search-box input');
+        const q = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
+        const items = q ? state.itemsAll.filter((x) => String(x.name || '').toLowerCase().includes(q)) : state.itemsAll;
+
+        let dirCount = 0;
+        items.forEach((item) => { if (item.is_dir) dirCount++; });
+        $('items-count').textContent = items.length;
+        $('dirs-count').textContent = dirCount;
+        updateSelectionUi();
+
+        items.forEach((item) => {
+          const relPath = joinRelPath(state.path, item.name);
+          const tr = document.createElement('tr');
+          if (state.selectedRelPath === relPath) tr.classList.add('row-selected');
+
+          const iconHtml = item.is_dir ? '<i class="fas fa-folder folder-icon"></i>' : '<i class="' + extIconClass(item.ext) + '"></i>';
+          const typeLabel = item.is_dir ? t('dirLabel') : (item.ext ? item.ext : '--');
+
+          tr.innerHTML = `
+            <td>
+              <div class="file-name-cell">
+                ${iconHtml}
+                <span>${item.name}</span>
+              </div>
+            </td>
+            <td>${item.is_dir ? '--' : formatBytes(item.size)}</td>
+            <td>${formatMtime(item.mtime)}</td>
+            <td>${typeLabel}</td>
+          `;
+
+          tr.onclick = function () {
+            state.selectedRelPath = relPath;
+            state.selectedIsDir = !!item.is_dir;
+            renderItems();
+            setStatus(state.selectedRelPath ? (t('selectedPrefix') + ': ' + state.selectedRelPath) : '');
+          };
+
+          tr.ondblclick = function () {
+            state.selectedRelPath = relPath;
+            state.selectedIsDir = !!item.is_dir;
+            if (item.is_dir) {
+              state.path = relPath;
+              state.selectedRelPath = null;
+              listCurrentDir();
+            } else {
+              openPreview(relPath);
+            }
+          };
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      async function listCurrentDir() {
+        try {
+          setStatus(t('loadingDir'));
+          renderBreadcrumb();
+
+          if (state.scope === 'drive' && !state.drive) {
+            $('file-tbody').innerHTML = '';
+            $('items-count').textContent = '0';
+            $('dirs-count').textContent = '0';
+            updateSelectionUi();
+            setStatus(t('driveNotSelected'));
+            return;
+          }
+
+          const data = await fetchJson(buildListUrl());
+          state.itemsAll = Array.isArray(data.items) ? data.items : [];
+          state.path = data.path || state.path || '';
+          state.selectedRelPath = null;
+          state.selectedIsDir = false;
+          renderItems();
+          setStatus(t('ready'));
+          updateSelectionUi();
+        } catch (e) {
+          console.error(e);
+          setStatus(t('loadFailedPrefix') + ': ' + String(e.message || e));
+          $('file-tbody').innerHTML = '';
+        }
+      }
+
+      function openModal() {
+        $('modal-overlay').classList.remove('hidden');
+      }
+
+      function closeModal() {
+        $('modal-overlay').classList.add('hidden');
+        $('modal-error').classList.add('hidden');
+        if (state.editorCm) {
+          state.editorCm.setValue('');
+          state.editorCm.setOption('readOnly', !state.canWrite);
+        } else {
+          $('editor').value = '';
+          $('editor').disabled = false;
+        }
+      }
+
+      function openCopyMoveModal(mode) {
+        state.copyMoveMode = mode;
+        const selected = state.selectedRelPath;
+        if (!selected) return;
+
+        const isCopy = mode === 'copy';
+        $('copy-move-modal-title').textContent = isCopy ? t('copy') : t('move');
+        $('copy-move-modal-meta').textContent =
+          'scope=' + state.scope + ' | src=' + selected + (state.selectedIsDir ? ' (dir)' : ' (file)');
+        $('copy-move-modal-error').classList.add('hidden');
+        $('copy-move-modal-error').textContent = '';
+
+        // 默认：目标目录用当前目录，名称用源 basename
+        $('target-dir-label').textContent = t('copyMoveTargetDirLabel');
+        $('target-name-label').textContent = t('copyMoveTargetNameLabel');
+        $('target-dir-input').placeholder = t('copyMoveTargetDirPlaceholder');
+        $('target-name-input').placeholder = t('copyMoveTargetNamePlaceholder');
+        setButtonLabel('btn-use-current-dir', t('copyMoveUseCurrentDir'));
+
+        $('target-dir-input').value = String(state.path || '');
+        const srcName = String(selected).split('/').pop() || '';
+        $('target-name-input').value = srcName;
+
+        // confirm button icon/label
+        const confirmBtn = $('btn-copy-move-confirm');
+        confirmBtn.innerHTML = isCopy ? '<i class="fas fa-copy"></i> ' + t('copy') : '<i class="fas fa-cut"></i> ' + t('move');
+
+        $('copy-move-modal-overlay').classList.remove('hidden');
+      }
+
+      function closeCopyMoveModal() {
+        state.copyMoveMode = null;
+        $('copy-move-modal-overlay').classList.add('hidden');
+        $('copy-move-modal-error').classList.add('hidden');
+        $('copy-move-modal-error').textContent = '';
+      }
+
+      function closeDirPickerModal() {
+        state.dirPickerPath = '';
+        $('dir-picker-modal-overlay').classList.add('hidden');
+        $('dir-picker-modal-meta').textContent = '';
+        const tbody = $('dir-picker-tbody');
+        if (tbody) tbody.innerHTML = '';
+      }
+
+      async function renderDirPicker() {
+        const tbody = $('dir-picker-tbody');
+        if (!tbody) return;
+
+        const cur = String(state.dirPickerPath || '');
+        $('dir-picker-current-path').textContent = cur ? ('当前：' + cur) : t('dirPickerRoot');
+
+        $('dir-picker-modal-meta').textContent = '';
+        tbody.innerHTML = '';
+
+        try {
+          const data = await fetchJson(buildListUrlForPath(cur));
+          const items = Array.isArray(data.items) ? data.items : [];
+          const dirs = items.filter((x) => !!x.is_dir);
+
+          // 仅需要目录；点击进入
+          if (!dirs.length) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td style="color: var(--text-light);">（无子目录）</td>
+              <td></td>
+            `;
+            tbody.appendChild(tr);
+          } else {
+            dirs.forEach((d) => {
+              const tr = document.createElement('tr');
+              tr.onclick = function () {
+                state.dirPickerPath = joinRelPath(state.dirPickerPath, d.name);
+                renderDirPicker();
+              };
+              tr.innerHTML = `
+                <td>${d.name}</td>
+                <td style="text-align:right; color: var(--text-light);">进入</td>
+              `;
+              tbody.appendChild(tr);
+            });
+          }
+
+          // up
+          const segs = splitRelPath(state.dirPickerPath);
+          $('btn-dir-picker-up').disabled = segs.length === 0;
+        } catch (e) {
+          console.error(e);
+          $('dir-picker-modal-meta').textContent = String(e.message || e);
+          $('btn-dir-picker-up').disabled = splitRelPath(state.dirPickerPath).length === 0;
+        }
+      }
+
+      async function openDirPickerModal() {
+        const cur = String($('target-dir-input').value || '').trim();
+        state.dirPickerPath = cur.replace(/^\/+/, '').replace(/\/+$/, '');
+
+        $('dir-picker-modal-overlay').classList.remove('hidden');
+        $('dir-picker-modal-meta').textContent = t('dirPickerLoading');
+        await renderDirPicker();
+      }
+
+      function showCopyMoveError(msg) {
+        const el = $('copy-move-modal-error');
+        el.textContent = msg || '';
+        el.classList.remove('hidden');
+      }
+
+      function showModalError(msg) {
+        const el = $('modal-error');
+        el.textContent = msg || '';
+        el.classList.remove('hidden');
+      }
+
+      function extFromRelPath(relPath) {
+        const name = String(relPath || '').split('/').pop() || '';
+        const idx = name.lastIndexOf('.');
+        if (idx < 0) return '';
+        return name.slice(idx + 1);
+      }
+
+      function getCodeMirrorTheme() {
+        try {
+          return (document.documentElement.getAttribute('data-theme') === 'dark') ? 'dracula' : undefined;
+        } catch (e) {
+          return undefined;
+        }
+      }
+
+      function codeMirrorModeFromExt(ext) {
+        const e = String(ext || '').toLowerCase();
+        if (e === 'js' || e === 'ts' || e === 'json') return 'javascript';
+        if (e === 'html' || e === 'htm') return 'htmlmixed';
+        if (e === 'css') return 'css';
+        if (e === 'php') return 'php';
+        if (e === 'md' || e === 'markdown') return 'markdown';
+        return null; // plain text
+      }
+
+      function initCodeMirrorIfNeeded() {
+        if (state.editorCm) return;
+        const ta = $('editor');
+        if (!ta || typeof CodeMirror === 'undefined') return;
+
+        const theme = getCodeMirrorTheme();
+        const opts = { lineNumbers: true };
+        if (theme) opts.theme = theme;
+        // 不在此处显式设置 mode，避免 mode 为 null 时触发 CodeMirror 内部解析报错
+        state.editorCm = CodeMirror.fromTextArea(ta, opts);
+        state.editorCm.setOption('readOnly', true);
+      }
+
+      async function openPreview(relPath) {
+        state.editorPath = relPath;
+        initCodeMirrorIfNeeded();
+        if (state.editorCm) {
+          state.editorCm.setOption('readOnly', !state.canWrite);
+          const mode = codeMirrorModeFromExt(extFromRelPath(relPath));
+          if (mode) state.editorCm.setOption('mode', mode);
+        } else {
+          const editor = $('editor');
+          editor.disabled = !state.canWrite;
+        }
+
+        $('modal-title').textContent = t('modalPreview');
+        $('modal-meta').textContent = 'scope=' + state.scope + ' | path=' + relPath;
+        $('modal-error').classList.add('hidden');
+        if (state.editorCm) state.editorCm.setValue('');
+        else $('editor').value = '';
+        openModal();
+
+        try {
+          const data = await fetchJson(buildReadUrl(relPath));
+          const text = (typeof data.text === 'string') ? data.text : '';
+          if (state.editorCm) state.editorCm.setValue(text);
+          else $('editor').value = text;
+          $('modal-title').textContent = t('modalPreview') + ': ' + String(relPath).split('/').pop();
+          $('btn-save').style.display = state.canWrite ? '' : 'none';
+          $('btn-modal-download').style.display = '';
+        } catch (e) {
+          if (state.editorCm) state.editorCm.setValue('');
+          else $('editor').value = '';
+          $('btn-save').style.display = 'none';
+          $('btn-modal-download').style.display = '';
+          showModalError(String(e.message || e));
+        }
+      }
+
+      async function saveEditor() {
+        if (!state.editorPath) return;
+        const content = state.editorCm ? (state.editorCm.getValue() || '') : ($('editor').value || '');
+        try {
+          setStatus(t('saveLoading'));
+          $('btn-save').disabled = true;
+          const data = await fetchJson(buildSaveUrl(state.editorPath), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content })
+          });
+          closeModal();
+          setStatus((data && data.ok) ? t('saveSuccess') : t('saveSuccess'));
+          // refresh current directory
+          listCurrentDir();
+        } catch (e) {
+          console.error(e);
+          showModalError(String(e.message || e));
+          setStatus(t('saveFailed'));
+        } finally {
+          $('btn-save').disabled = false;
+        }
+      }
+
+      function bindCommonButtons() {
+        $('btn-modal-close').onclick = function () { closeModal(); };
+        $('btn-save').onclick = function () { saveEditor(); };
+        $('btn-modal-download').onclick = function () {
+          if (!state.editorPath) return;
+          window.location.href = buildDownloadUrl(state.editorPath);
+        };
+
+        const uploadInput = $('upload-input');
+        const btnUpload = $('btn-upload');
+        btnUpload.onclick = function () {
+          uploadInput.click();
+        };
+
+        uploadInput.onchange = async function () {
+          if (!uploadInput.files || !uploadInput.files[0]) return;
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          const file = uploadInput.files[0];
+          try {
+            setStatus(t('uploadLoading'));
+            btnUpload.disabled = true;
+            const fd = new FormData();
+            fd.append('file', file, file.name);
+            const sp = new URLSearchParams();
+            sp.set('scope', state.scope);
+            sp.set('path', state.path || '');
+            currentDriveQueryIfNeeded(sp);
+            const url = pluginBase() + '/upload?' + sp.toString();
+            const r = await fetch(url, { method: 'POST', credentials: 'include', body: fd });
+            const text = await r.text();
+            let data = null;
+            try { data = JSON.parse(text); } catch (e) { }
+            if (!r.ok || (data && data.ok === false)) {
+              const msg = data && (data.error || data.message) ? (data.error || data.message) : t('uploadFailedPrefix');
+              throw new Error(msg);
+            }
+            setStatus(t('uploadSuccess'));
+            closeModal();
+            listCurrentDir();
+          } catch (e) {
+            console.error(e);
+            setStatus(t('uploadFailedPrefix') + ': ' + String(e.message || e));
+            alert(t('uploadFailedPrefix') + ': ' + String(e.message || e));
+          } finally {
+            btnUpload.disabled = false;
+            uploadInput.value = '';
+          }
+        };
+
+        $('btn-mkdir').onclick = async function () {
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          const name = prompt(t('mkdirNamePrompt'));
+          if (!name) return;
+          const relPath = joinRelPath(state.path, name);
+          try {
+            setStatus(t('mkdirLoading'));
+            $('btn-mkdir').disabled = true;
+            const data = await fetchJson(buildMkdirUrl(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                path: relPath
+              })
+            });
+            closeModal();
+            setStatus(t('mkdirSuccess'));
+            listCurrentDir();
+          } catch (e) {
+            console.error(e);
+            setStatus(t('mkdirFailedPrefix') + ': ' + String(e.message || e));
+            alert(t('mkdirFailedPrefix') + ': ' + String(e.message || e));
+          } finally {
+            $('btn-mkdir').disabled = false;
+          }
+        };
+
+        $('btn-touch').onclick = async function () {
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          const name = prompt(t('touchNamePrompt'));
+          if (!name) return;
+          const relPath = joinRelPath(state.path, name);
+          state.editorPath = relPath;
+
+          $('modal-title').textContent = t('newFilePrefix') + ': ' + name;
+          $('modal-meta').textContent = 'scope=' + state.scope + ' | path=' + relPath;
+          $('btn-save').style.display = '';
+          $('btn-modal-download').style.display = '';
+          $('modal-error').classList.add('hidden');
+          $('editor').value = '';
+          $('editor').disabled = false;
+          openModal();
+        };
+
+        $('btn-rename').onclick = async function () {
+          if (!state.selectedRelPath) {
+            alert(t('renameSelectAlert'));
+            return;
+          }
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          const currentName = String(state.selectedRelPath).split('/').pop();
+          const newName = prompt(t('renameNewNamePrompt'), currentName);
+          if (!newName || newName === currentName) return;
+          try {
+            setStatus(t('renameLoading'));
+            $('btn-rename').disabled = true;
+            const data = await fetchJson(buildRenameUrl(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: state.selectedRelPath, new_name: newName })
+            });
+            closeModal();
+            setStatus(data && data.message ? data.message : t('renameSuccess'));
+            listCurrentDir();
+          } catch (e) {
+            console.error(e);
+            setStatus(t('renameFailedPrefix') + ': ' + String(e.message || e));
+            alert(t('renameFailedPrefix') + ': ' + String(e.message || e));
+          } finally {
+            $('btn-rename').disabled = false;
+          }
+        };
+
+        $('btn-delete').onclick = async function () {
+          if (!state.selectedRelPath) {
+            alert(t('deleteSelectAlert'));
+            return;
+          }
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          const target = state.selectedRelPath;
+          const ok = confirm(
+            t('confirmDelete') +
+            ': ' +
+            target +
+            (state.selectedIsDir ? (i18nLang === 'en-US' ? ' (directory will be removed recursively)' : '（目录将递归删除）') : '')
+          );
+          if (!ok) return;
+          try {
+            setStatus(t('deleteLoading'));
+            $('btn-delete').disabled = true;
+            const data = await fetchJson(buildDeleteUrl(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: target, recursive: true })
+            });
+            closeModal();
+            setStatus(data && data.message ? data.message : t('deleteSuccess'));
+            state.selectedRelPath = null;
+            state.selectedIsDir = false;
+            listCurrentDir();
+          } catch (e) {
+            console.error(e);
+            setStatus(t('deleteFailedPrefix') + ': ' + String(e.message || e));
+            alert(t('deleteFailedPrefix') + ': ' + String(e.message || e));
+          } finally {
+            $('btn-delete').disabled = false;
+          }
+        };
+
+        $('btn-download').onclick = function () {
+          if (!state.selectedRelPath) {
+            alert(t('downloadSelectAlert'));
+            return;
+          }
+          if (state.selectedIsDir) {
+            alert(t('dirNotDownloadAlert'));
+            return;
+          }
+          setStatus(t('downloadLoading'));
+          window.location.href = buildDownloadUrl(state.selectedRelPath);
+        };
+
+        $('btn-copy').onclick = function () {
+          if (!state.selectedRelPath) {
+            alert(t('copyMoveSelectAlert'));
+            return;
+          }
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          openCopyMoveModal('copy');
+        };
+
+        $('btn-move').onclick = function () {
+          if (!state.selectedRelPath) {
+            alert(t('copyMoveSelectAlert'));
+            return;
+          }
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+          openCopyMoveModal('move');
+        };
+
+        $('btn-copy-move-close').onclick = function () { closeCopyMoveModal(); };
+        $('btn-copy-move-cancel').onclick = function () { closeCopyMoveModal(); };
+        $('copy-move-modal-overlay').onclick = function (e) {
+          if (e.target && e.target === $('copy-move-modal-overlay')) closeCopyMoveModal();
+        };
+
+        $('btn-use-current-dir').onclick = function () {
+          $('target-dir-input').value = String(state.path || '');
+        };
+
+        $('btn-pick-target-dir').onclick = function () {
+          openDirPickerModal();
+        };
+
+        $('btn-dir-picker-close').onclick = function () { closeDirPickerModal(); };
+        $('btn-dir-picker-cancel').onclick = function () { closeDirPickerModal(); };
+
+        $('btn-dir-picker-up').onclick = function () {
+          const segs = splitRelPath(state.dirPickerPath);
+          if (!segs.length) return;
+          segs.pop();
+          state.dirPickerPath = segs.join('/');
+          renderDirPicker();
+        };
+
+        $('btn-dir-picker-select').onclick = function () {
+          $('target-dir-input').value = String(state.dirPickerPath || '');
+          closeDirPickerModal();
+        };
+
+        $('dir-picker-modal-overlay').onclick = function (e) {
+          if (e.target && e.target === $('dir-picker-modal-overlay')) closeDirPickerModal();
+        };
+
+        $('btn-copy-move-confirm').onclick = async function () {
+          if (!state.copyMoveMode) return;
+          if (!state.selectedRelPath) return;
+          if (!state.canWrite) {
+            alert(t('readOnlyNeedSuper'));
+            return;
+          }
+
+          const selected = state.selectedRelPath;
+          const srcName = String(selected).split('/').pop() || '';
+          const targetDir = $('target-dir-input').value.trim();
+          const targetName = $('target-name-input').value.trim() || srcName;
+
+          // basic client-side validation
+          if (!targetName) {
+            showCopyMoveError('名称不能为空');
+            return;
+          }
+          if (targetName.includes('/') || targetName.includes('\\') || targetName.includes(':')) {
+            showCopyMoveError('名称不能包含 / \\ :');
+            return;
+          }
+
+          $('copy-move-modal-error').classList.add('hidden');
+          const confirmBtn = $('btn-copy-move-confirm');
+          confirmBtn.disabled = true;
+
+          try {
+            // check target exists; if exists, ask before overwrite
+            const listData = await fetchJson(buildListUrlForPath(targetDir));
+            const items = Array.isArray(listData.items) ? listData.items : [];
+            const destExists = items.some((x) => String(x.name || '') === String(targetName));
+
+            let overwrite = false;
+            if (destExists) {
+              const ok = confirm(t('overwriteConfirm'));
+              if (!ok) return;
+              overwrite = true;
+            }
+
+            const mode = state.copyMoveMode;
+            const url = mode === 'copy' ? buildCopyUrl() : buildMoveUrl();
+            const data = await fetchJson(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                src_path: selected,
+                dst_dir: targetDir,
+                dst_name: targetName,
+                recursive: true,
+                overwrite: overwrite
+              })
+            });
+
+            closeCopyMoveModal();
+            state.selectedRelPath = null;
+            state.selectedIsDir = false;
+            listCurrentDir();
+
+            if (mode === 'copy') setStatus(t('copySuccess') + (data && data.message ? '' : ''));
+            else setStatus(t('moveSuccess') + (data && data.message ? '' : ''));
+          } catch (e) {
+            console.error(e);
+            const mode = state.copyMoveMode;
+            const prefix = mode === 'copy' ? t('copyFailedPrefix') : t('moveFailedPrefix');
+            showCopyMoveError(prefix + ': ' + String(e.message || e));
+          } finally {
+            confirmBtn.disabled = false;
+          }
+        };
+
+        // Search filter (client side)
+        const searchInput = document.querySelector('.search-box input');
+        if (searchInput) {
+          searchInput.addEventListener('input', function () {
+            renderItems();
+          });
+        }
+      }
+
+      async function loadFsInfoAndInit() {
+        try {
+          setStatus(t('fsInfoLoading'));
+          const data = await fetchJson(pluginBase() + '/fs_info');
+          state.allowedScopes = Array.isArray(data.allowed_scopes) ? data.allowed_scopes : ['mcdr'];
+          state.drives = Array.isArray(data.drives) ? data.drives : [];
+          state.canWrite = !!data.is_super_admin;
+          state.limits = data.limits || state.limits;
+          updateLimitsUi();
+        } catch (e) {
+          console.error(e);
+          setStatus(t('fsInfoFailedPrefix') + ': ' + String(e.message || e));
+          throw e;
+        }
+
+        // default scope/drive：范围选择由左侧目录树承担，这里只做初始状态兜底
+        state.scope = state.allowedScopes.includes('mcdr') ? 'mcdr' : state.allowedScopes[0];
+        state.drive = state.drives[0] || '';
+
+        renderTree();
+        await listCurrentDir();
+        renderItems();
+        setStatus(state.canWrite ? '超管写入已启用' : '当前为只读（浏览/预览）。');
+      }
+
+      function initialButtonDisabled() {
+        $('btn-rename').disabled = true;
+        $('btn-delete').disabled = true;
+        $('btn-download').disabled = true;
+        $('btn-copy').disabled = true;
+        $('btn-move').disabled = true;
+      }
+
+      function updateActionButtons() {
+        const hasSel = !!state.selectedRelPath;
+        $('btn-rename').disabled = !hasSel;
+        $('btn-delete').disabled = !hasSel;
+        $('btn-download').disabled = !(hasSel && !state.selectedIsDir);
+        $('btn-copy').disabled = !hasSel;
+        $('btn-move').disabled = !hasSel;
+      }
+
+      // hook renderItems to update buttons
+      const oldRenderItems = renderItems;
+      renderItems = function () {
+        oldRenderItems();
+        updateActionButtons();
+      };
+
+      initialButtonDisabled();
+
+      // close modal on overlay click
+      $('modal-overlay').onclick = function (e) {
+        if (e.target && e.target === $('modal-overlay')) closeModal();
+      };
+
+      bindCommonButtons();
+      loadFsInfoAndInit();
+    })();
+  </script>
+</body>
+
+</html>

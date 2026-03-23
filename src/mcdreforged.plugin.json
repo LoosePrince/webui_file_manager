@@ -1,0 +1,16 @@
+{
+  "id": "webui_file_manager",
+  "version": "1.0.0",
+  "name": "WebUI File Manager",
+  "description": {
+    "en_us": "A WebUI file manager plugin, browsing the MCDR root and (super admin) reading/writing local drives.",
+    "zh_cn": "WebUI 文件管理器插件，浏览 MCDR 根目录，超级管理员可读取/写入本地磁盘。"
+  },
+  "author": [
+    "LoosePrince"
+  ],
+  "link": "https://github.com/PFingan-Code/webui_file_manager",
+  "dependencies": {
+    "guguwebui": ">=1.7.0"
+  }
+}

@@ -1,0 +1,271 @@
+name: Package src on Change
+
+on:
+  push:
+    paths:
+      - src/**
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Verify plugin entry files
+      run: |
+        if [ ! -f "src/mcdreforged.plugin.json" ]; then
+          echo "Error: src/mcdreforged.plugin.json not found"
+          exit 1
+        fi
+        if [ ! -f "src/webui_file_manager.py" ]; then
+          echo "Error: src/webui_file_manager.py not found"
+          exit 1
+        fi
+        if [ ! -f "src/static/demo.html" ]; then
+          echo "Error: src/static/demo.html not found"
+          exit 1
+        fi
+        echo "✓ Plugin source files verified"
+
+    - name: Package src directory
+      run: |
+        # .mcdr 本质上是 zip 包：要求根目录包含 mcdreforged.plugin.json
+        cd src
+        zip -r ../webui_file_manager_beta.mcdr . >/dev/null
+        cd ..
+        echo "Packaged src contents into webui_file_manager_beta.mcdr"
+
+        mkdir -p build
+        cp webui_file_manager_beta.mcdr build/
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: webui_file_manager_beta.mcdr
+        path: webui_file_manager_beta.mcdr
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: webui_file_manager_beta.mcdr
+        path: .
+
+    - name: Determine release type from commit message
+      id: release_meta
+      run: |
+        COMMIT_MESSAGE="${{ github.event.head_commit.message || '' }}"
+        TITLE="$(printf "%s\n" "$COMMIT_MESSAGE" | head -n 1 | tr -d '\r')"
+        BODY="$(printf "%s\n" "$COMMIT_MESSAGE" | tail -n +2 | sed 's/\r$//')"
+
+        TYPE="beta"
+        VERSION_FROM_TITLE=""
+
+        if [[ "$TITLE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          TYPE="formal"
+          VERSION_FROM_TITLE="${TITLE#v}"
+        fi
+
+        echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+        echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+        echo "body<<EOF" >> "$GITHUB_OUTPUT"
+        printf "%s\n" "$BODY" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+        echo "version_from_title=$VERSION_FROM_TITLE" >> "$GITHUB_OUTPUT"
+
+    - name: Generate tag
+      id: tag
+      run: |
+        echo "Reading version from src/mcdreforged.plugin.json..."
+        VERSION=$(jq -r '.version' src/mcdreforged.plugin.json)
+        if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+          echo "Error: Failed to read version from src/mcdreforged.plugin.json"
+          exit 1
+        fi
+        echo "Current plugin version: $VERSION"
+
+        RELEASE_TYPE="${{ steps.release_meta.outputs.type }}"
+        VERSION_FROM_TITLE="${{ steps.release_meta.outputs.version_from_title }}"
+
+        if [ "$RELEASE_TYPE" = "formal" ]; then
+          if [ -z "$VERSION_FROM_TITLE" ]; then
+            echo "Error: Formal release detected but version_from_title is empty"
+            exit 1
+          fi
+          if [ "$VERSION" != "$VERSION_FROM_TITLE" ]; then
+            echo "Error: Version mismatch between mcdreforged.plugin.json ($VERSION) and commit title (v$VERSION_FROM_TITLE)"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          echo "Generating formal release tag: ${TAG}"
+        else
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          TAG="v${VERSION}-beta.${TIMESTAMP}"
+          echo "Generating beta pre-release tag: ${TAG}"
+
+          if [[ ! $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]{8}-[0-9]{6}$ ]]; then
+            echo "Error: Invalid tag format generated: $TAG"
+            exit 1
+          fi
+        fi
+
+        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+        echo "Checking for tag conflicts..."
+        if gh api repos/${{ github.repository }}/git/refs/tags/$TAG >/dev/null 2>&1; then
+          echo "Error: Tag $TAG already exists!"
+          exit 1
+        fi
+        echo "✓ Tag $TAG is available"
+
+    - name: Delete existing pre-releases (beta only)
+      run: |
+        echo "Will DELETE: Beta versions (vX.Y.Z-beta.*, vX.Y.Z-rc.*, etc.)"
+        echo "Will PRESERVE: Formal versions (vX.Y.Z, vX.Y.Z-notice.*, etc.)"
+
+        RELEASES=$(gh api repos/${{ github.repository }}/releases --jq '.[] | select(.prerelease==true and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$") | not) and (.tag_name | test("-notice\\.") | not)) | .id' 2>/dev/null || echo "")
+
+        if [ ! -z "$RELEASES" ]; then
+          for RELEASE_ID in $RELEASES; do
+            TAG_NAME=$(gh api repos/${{ github.repository }}/releases/$RELEASE_ID --jq '.tag_name' 2>/dev/null || echo "unknown")
+            echo "Deleting beta pre-release ID: $RELEASE_ID (Tag: $TAG_NAME)"
+            if gh api repos/${{ github.repository }}/releases/$RELEASE_ID -X DELETE; then
+              echo "✓ Successfully deleted beta pre-release: $TAG_NAME"
+            else
+              echo "⚠ Failed to delete beta pre-release: $TAG_NAME"
+            fi
+          done
+        else
+          echo "No existing beta pre-releases found"
+        fi
+
+    - name: Delete beta tags for formal release
+      run: |
+        RELEASE_TYPE="${{ steps.release_meta.outputs.type }}"
+        if [ "$RELEASE_TYPE" != "formal" ]; then
+          echo "Not a formal release, skip deleting beta tags."
+          exit 0
+        fi
+
+        BETA_TAG_REFS=$(gh api repos/${{ github.repository }}/git/refs/tags --paginate --jq '.[] | select(.ref | test("refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+-beta\\.")) | .ref' 2>/dev/null || echo "")
+
+        if [ -z "$BETA_TAG_REFS" ]; then
+          echo "No beta tags found."
+        else
+          for REF in $BETA_TAG_REFS; do
+            TAG_NAME=${REF#"refs/tags/"}
+            echo "Deleting beta tag: $TAG_NAME"
+            if gh api repos/${{ github.repository }}/git/refs/tags/$TAG_NAME -X DELETE; then
+              echo "✓ Successfully deleted beta tag: $TAG_NAME"
+            else
+              echo "⚠ Failed to delete beta tag: $TAG_NAME"
+            fi
+          done
+        fi
+
+    - name: Create release
+      run: |
+        RELEASE_TYPE="${{ steps.release_meta.outputs.type }}"
+        TAG="${{ steps.tag.outputs.tag }}"
+        VERSION="${{ steps.tag.outputs.version }}"
+
+        echo "Creating ${RELEASE_TYPE} release: ${TAG}"
+
+        if [ ! -f "webui_file_manager_beta.mcdr" ]; then
+          echo "Error: webui_file_manager_beta.mcdr file not found!"
+          exit 1
+        fi
+
+        FILE_SIZE=$(stat -c%s "webui_file_manager_beta.mcdr" 2>/dev/null || stat -f%z "webui_file_manager_beta.mcdr" 2>/dev/null || echo "unknown")
+        echo "Original file size: ${FILE_SIZE} bytes"
+
+        if [ "$RELEASE_TYPE" = "formal" ]; then
+          ASSET_NAME="webui_file_manager_v${VERSION}.mcdr"
+          cp webui_file_manager_beta.mcdr "$ASSET_NAME"
+
+          FILE_SIZE=$(stat -c%s "$ASSET_NAME" 2>/dev/null || stat -f%z "$ASSET_NAME" 2>/dev/null || echo "unknown")
+          echo "Formal release asset: ${ASSET_NAME} (${FILE_SIZE} bytes)"
+
+          NOTES_FILE="release_notes.md"
+          printf '%s\n' "${{ steps.release_meta.outputs.body }}" > "$NOTES_FILE"
+
+          if gh release create "$TAG" \
+            --title "v${VERSION}" \
+            --notes-file "$NOTES_FILE" \
+            --target ${{ github.sha }} \
+            "$ASSET_NAME"; then
+            echo "✓ Successfully created formal release: $TAG"
+          else
+            echo "❌ Failed to create formal release"
+            exit 1
+          fi
+        else
+          ASSET_NAME="webui_file_manager_beta.mcdr"
+          NOTES_FILE="beta_notes.md"
+          BUILD_TIME=$(date -u)
+
+          {
+            echo "Automated beta build from source changes"
+            echo
+            echo "**Build Info:**"
+            echo "- Commit: ${{ github.sha }}"
+            echo "- Branch: ${{ github.ref_name }}"
+            echo "- Build Time: ${BUILD_TIME}"
+            echo "- Triggered by: ${{ github.actor }}"
+            echo "- File Size: ${FILE_SIZE} bytes"
+            echo
+            echo "**Installation:**"
+            echo "Download the \`${ASSET_NAME}\` file and place it in your MCDR plugins directory."
+            echo
+            echo "**Changes:**"
+            echo "This is an automated build triggered by changes in the \`src/\` directory."
+          } > "$NOTES_FILE"
+
+          if gh release create "$TAG" \
+            --title "Beta Build v${VERSION} - ${TAG}" \
+            --notes-file "$NOTES_FILE" \
+            --prerelease \
+            --target ${{ github.sha }} \
+            "$ASSET_NAME"; then
+            echo "✓ Successfully created beta pre-release: $TAG"
+          else
+            echo "❌ Failed to create beta pre-release"
+            exit 1
+          fi
+        fi
+
+    - name: Clean up
+      run: |
+        rm -f webui_file_manager_beta.mcdr
+        echo "Cleanup completed"
+
+    - name: Summary
+      run: |
+        echo "=========================================="
+        echo "Pre-release creation completed!"
+        echo "=========================================="
+        echo "Tag: ${{ steps.tag.outputs.tag }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Actor: ${{ github.actor }}"
+        echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}"
+        echo "=========================================="
+
